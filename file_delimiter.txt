@@ -1,0 +1,5 @@
+H;Name;Age;Country
+D;John Doe;34;United States
+D;Silvio Santos;84;Brasil
+D;Bruce Lee;32;China
+T;3;
