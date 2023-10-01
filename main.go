@@ -19,7 +19,7 @@ import (
  -f c:\Temp\GPF.MZ.BBA2.ICTPRVFN.D* -find :2:14:PROPOSTA -find 3:95:6:"ADESAO ?" > c:\temp\find.txt
 
  -f ".\file_delimiter.txt" -d ";" -findd H:2:NAME -findd D:2:NAME -findd T:2:QUANTITY
-
+ -f ".\file_position.txt" -findp H:2:8:DATE -findp D:2:20:NAME -findp D:22:2:AGE
 */
 
 type FindPosition struct {
@@ -42,6 +42,8 @@ var flagFile string
 var flagFindP arrayFindP
 var flagFindD arrayFindD
 var flagDelimiter string
+
+type fnExtract func(path string) ([]string, error)
 
 func init() {
 	flag.StringVar(&flagFile, "f", "", `cardinality (1) - file ou dir to search, may contem special char *. ex: C:\temp\file.txt, C:\temp\*.txt`)
@@ -163,11 +165,9 @@ func Process() {
 	start := time.Now()
 
 	//choose the apropriate Extract function
-	var fnExtract func(path string) ([]string, error) = nil
-	if len(flagFindP) > 0 {
-		fnExtract = ExtactDataPosition
-	} else if len(flagFindD) > 0 {
-		fnExtract = ExtactDataDelimiter
+	var fnExtract = getExtractFunction()
+	if fnExtract == nil {
+		panic("No extraction function defined for these flags")
 	}
 
 	FindInFiles(flagFile, fnExtract)
@@ -176,7 +176,18 @@ func Process() {
 	fmt.Printf("duration\t%s\n", elapsed)
 }
 
-func FindInFiles(path string, fnExtract func(path string) ([]string, error)) {
+func getExtractFunction() fnExtract {
+	//choose the apropriate Extract function
+	if len(flagFindP) > 0 {
+		return ExtactDataPosition
+	}
+	if len(flagFindD) > 0 {
+		return ExtactDataDelimiter
+	}
+	return nil
+}
+
+func FindInFiles(path string, fnExtract fnExtract) {
 
 	allFiles := getAllFilesInDir(path)
 
@@ -188,6 +199,9 @@ func FindInFiles(path string, fnExtract func(path string) ([]string, error)) {
 		fmt.Printf("file #%d\t%s\n", idx+1, arq)
 
 		fnExtract(arq)
+
+		//todo: make fnExtract returns the lines and print them here
+
 		//lines, err := fnExtract(arq)
 
 		// if err == nil && len(lines) > 0 {
@@ -237,9 +251,10 @@ func ExtactDataPosition(path string) ([]string, error) {
 
 		linha := scanner.Text()
 
+		//fmt.Println(linha, flagFindP)
+
 		var dados []string
 		found = false
-
 		for _, lps := range flagFindP {
 			//search for the lines beginning with l
 			if len(lps.lineBegin) > 0 {
