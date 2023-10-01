@@ -13,16 +13,16 @@ import (
 )
 
 /*
- -f C:\Temp\GPF.MZ.BBA2.ICTPPEND.D2107* -find 1:2:14:PROPOSTA -find 1:38:40:"NOME CLIENTE" -find 3:276:2:CANAL
- -f C:\Temp\GPF.MZ.BBA2.ICTPPEND.D2107* -find 1:2:14:PROPOSTA -find 1:38:40:"NOME CLIENTE" -find 3:276:2:CANAL
- -f C:\Temp\GPF.MZ.BBA2.ICTPJUNC.D2107* -find 1:16:14:CPF -find 1:106:3:DD1 -find 1:109:9:TEL1 -find 1:118:3:DD2 -find 1:121:9:TEL2 -find 1:130:3:DD3 -find 1:133:9:TEL3 > c:\temp\find.txt
- -f c:\Temp\GPF.MZ.BBA2.ICTPRVFN.D* -find :2:14:PROPOSTA -find 3:95:6:"ADESAO ?" > c:\temp\find.txt
-
  -f ".\file_delimiter.txt" -d ";" -findd H:2:NAME -findd D:2:NAME -findd T:2:QUANTITY
  -f ".\file_position.txt" -findp H:2:8:DATE -findp D:2:20:NAME -findp D:22:2:AGE
  -f ".\file_position.txt" -findp H:2:8:DATE -findp D:2:20:NAME -findp D:24:20:COUNTRY -findp D:44:15:TELEPHONE
+ -f ".\file_position.txt" -findp H:2:8:DATE -findp D:2:20:NAME -findp D:24:20:COUNTRY -findp D:44:15:TELEPHONE -o c:\temp\findp.txt
+ -f ".\file_delimiter.txt" -d ";" -findd H:2:NAME -findd D:2:NAME -findd D:4:COUNTRY -findd D:5:REGION -o c:\temp\findd.txt
+
  -f "c:\temp\filepos\arq pos*.txt" -findp H:2:8:DATE -findp H:17:6:SEQUENTIAL
  -f "c:\temp\filepos\arq pos*.txt" -findp D:2:20:NAME -findp D:22:2:AGE -findp D:64:15:TELEPHONE -findp D:89:6:"ITEM NUMBER"
+ -f "c:\temp\filepos\arq pos*.txt" -findp D:2:20:NAME -findp D:24:20:COUNTRY -findp D:64:15:TELEPHONE -findp D:89:6:"ITEM NUMBER" -o "c:\temp\arq pos.txt"
+ -f "C:\temp\filedelim\arq delim*.txt" -d ";" -findd H:2:NAME -findd H:4:"FILE SEQ" -findd D:2:NAME -findd D:4:COUNTRY -findd D:5:REGION -findd D:6:TELEPHONE -findd D:7:"ITEM NUMBER" -o "c:\temp\arq delim.txt"
 */
 
 type FindPosition struct {
@@ -45,16 +45,19 @@ var flagFile string
 var flagFindP arrayFindP
 var flagFindD arrayFindD
 var flagDelimiter string
+var flagOutputFile string
 
 type fnExtract func(path string) ([]string, error)
 
 func init() {
 	flag.StringVar(&flagFile, "f", "", `cardinality (1) - file ou dir to search, may contem special char *. ex: C:\temp\file.txt, C:\temp\*.txt`)
+	flag.StringVar(&flagOutputFile, "o", "", "cardinality (0-1) - output file")
 
 	flag.Var(&flagFindP, "findp", "extract from positional text file. cardinality (0*) - format = l:p:s:h = get data at line beginning by #l (l is opcional), position #p, size #s, data name #h. p=>1, s=>1")
 
 	flag.Var(&flagFindD, "findd", "extract from delimited text file. cardinality (0*) - format = l:n:h = get data at line beginning by #l (l is opcional), n-th element #n, data name #h. n=>1")
 	flag.StringVar(&flagDelimiter, "d", "", `cardinality (0-1) - delimiter when extracting from delimited files`)
+
 }
 
 func (i *arrayFindP) String() string {
@@ -196,26 +199,32 @@ func FindInFiles(path string, fnExtract fnExtract) {
 
 	fmt.Printf("searching %d file(s)\n", len(allFiles))
 
-	//fileswithData := 0
+	allLines := make([]string, 0)
+
 	for idx, arq := range allFiles {
 
-		fmt.Printf("file #%d\t%s\n", idx+1, arq)
+		//fmt.Printf("file #%d\t%s\n", idx+1, arq)
+		allLines = append(allLines, fmt.Sprintf("file #%d\t%s", idx+1, arq))
 
-		fnExtract(arq)
+		lines, err := fnExtract(arq)
 
-		//todo: make fnExtract returns the lines and print them here
+		if err != nil {
+			panic(err)
+		}
 
-		//lines, err := fnExtract(arq)
+		allLines = append(allLines, lines...)
 
-		// if err == nil && len(lines) > 0 {
-		// 	fileswithData++
-		// 	for _, ln := range lines {
-		// 		fmt.Println(ln)
-		// 	}
-		// }
+		//fmt.Printf("total lines\t%d\n", len(lines))
 	}
 
-	//fmt.Printf("extraction over. files with data\t%d\n", fileswithData)
+	//write the lines in the output file if informed, or in the terminal
+	if flagOutputFile != "" {
+		writeOutputFile(allLines, flagOutputFile)
+	} else {
+		for _, l := range allLines {
+			fmt.Println(l)
+		}
+	}
 }
 
 func getAllFilesInDir(path string) []string {
@@ -243,11 +252,11 @@ func ExtactDataPosition(path string) ([]string, error) {
 	total := 0
 
 	//header
-	fmt.Print("Line")
+	var hdr = "Line"
 	for _, lps := range flagFindP {
-		fmt.Printf("\t%s:%s", lps.lineBegin, lps.name)
+		hdr = fmt.Sprintf("%s\t%s:%s", hdr, lps.lineBegin, lps.name)
 	}
-	fmt.Println("")
+	allLines = append(allLines, hdr)
 
 	for scanner.Scan() {
 		numLinha++
@@ -274,10 +283,10 @@ func ExtactDataPosition(path string) ([]string, error) {
 		}
 		if found {
 			total++
-			fmt.Printf("%d\t%s\n", numLinha, strings.Join(dados, "\t"))
+			var out = fmt.Sprintf("%d\t%s", numLinha, strings.Join(dados, "\t"))
+			allLines = append(allLines, out)
 		}
 	}
-	fmt.Printf("total lines\t%d\n", total)
 
 	if err := scanner.Err(); err != nil {
 		return []string{}, err
@@ -325,11 +334,11 @@ func ExtactDataDelimiter(path string) ([]string, error) {
 	total := 0
 
 	//header
-	fmt.Print("Line")
+	var hdr = "Line"
 	for _, lps := range flagFindD {
-		fmt.Printf("\t%s:%s", lps.lineBegin, lps.name)
+		hdr = fmt.Sprintf("%s\t%s:%s", hdr, lps.lineBegin, lps.name)
 	}
-	fmt.Println("")
+	allLines = append(allLines, hdr)
 
 	for scanner.Scan() {
 		numLinha++
@@ -364,14 +373,23 @@ func ExtactDataDelimiter(path string) ([]string, error) {
 		}
 		if found {
 			total++
-			fmt.Printf("%d\t%s\n", numLinha, strings.Join(dados, "\t"))
+			var out = fmt.Sprintf("%d\t%s", numLinha, strings.Join(dados, "\t"))
+			allLines = append(allLines, out)
 		}
 	}
-	fmt.Printf("total lines\t%d\n", total)
 
 	if err := scanner.Err(); err != nil {
 		return allLines, err
 	}
 
 	return allLines, nil
+}
+
+func writeOutputFile(lines []string, outputFile string) {
+	f, _ := os.Create(outputFile)
+	defer f.Close()
+
+	for _, l := range lines {
+		fmt.Fprintln(f, l)
+	}
 }
