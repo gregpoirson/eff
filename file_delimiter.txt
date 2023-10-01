@@ -1,5 +1,6 @@
 H;Name;Age;Country
-D;John Doe;34;United States
-D;Silvio Santos;84;Brasil
-D;Bruce Lee;32;China
-T;3;
+D;John Doe;34;United States;Ohio
+D;Silvio Santos;84;Brasil;Minas Gerais
+D;Bruce Lee;32;China;Shandong
+D;Greg Oreo;49;França;Bretagne
+T;4;

@@ -20,6 +20,9 @@ import (
 
  -f ".\file_delimiter.txt" -d ";" -findd H:2:NAME -findd D:2:NAME -findd T:2:QUANTITY
  -f ".\file_position.txt" -findp H:2:8:DATE -findp D:2:20:NAME -findp D:22:2:AGE
+ -f ".\file_position.txt" -findp H:2:8:DATE -findp D:2:20:NAME -findp D:24:20:COUNTRY -findp D:44:15:TELEPHONE
+ -f "c:\temp\filepos\arq pos*.txt" -findp H:2:8:DATE -findp H:17:6:SEQUENTIAL
+ -f "c:\temp\filepos\arq pos*.txt" -findp D:2:20:NAME -findp D:22:2:AGE -findp D:64:15:TELEPHONE -findp D:89:6:"ITEM NUMBER"
 */
 
 type FindPosition struct {
@@ -251,8 +254,6 @@ func ExtactDataPosition(path string) ([]string, error) {
 
 		linha := scanner.Text()
 
-		//fmt.Println(linha, flagFindP)
-
 		var dados []string
 		found = false
 		for _, lps := range flagFindP {
@@ -266,10 +267,10 @@ func ExtactDataPosition(path string) ([]string, error) {
 			}
 
 			found = true
-			dado = linha[lps.pos : lps.pos+lps.size]
-			//dados = append(dados, fmt.Sprintf("%d\t%d\t%s", ps.pos, ps.size, dado))
+			//dado = strUtf8(linha, lps)
+			dado = substr(linha, lps)
+			//fmt.Println(dado)
 			dados = append(dados, dado)
-			//fmt.Printf("Line %d, pos %d size %d: %s", numLinha, ps.pos, ps.size, dado)
 		}
 		if found {
 			total++
@@ -284,6 +285,26 @@ func ExtactDataPosition(path string) ([]string, error) {
 
 	return allLines, nil
 }
+
+// go reads in bytes, not in char. must 'convert' the string
+// in Go the indices are byte-indices, not character or rune indices. Go stores the UTF-8 encoded byte sequence of texts in a string
+func substr(s string, lps FindPosition) string {
+	counter, startIdx := 0, 0
+	for i := range s {
+		if counter == lps.pos {
+			startIdx = i
+		}
+		if counter == lps.pos+lps.size {
+			return s[startIdx:i]
+		}
+		counter++
+	}
+	return s[startIdx:]
+}
+
+// func strUtf8(str string, lps FindPosition) string {
+// 	return string([]rune(str)[lps.pos : lps.pos+lps.size])
+// }
 
 func ExtactDataDelimiter(path string) ([]string, error) {
 	allLines := make([]string, 0)
@@ -339,9 +360,7 @@ func ExtactDataDelimiter(path string) ([]string, error) {
 
 			found = true
 			dado = tok[ln.nth]
-			//dados = append(dados, fmt.Sprintf("%d\t%d\t%s", ps.pos, ps.size, dado))
 			dados = append(dados, dado)
-			//fmt.Printf("Line %d, pos %d size %d: %s", numLinha, ps.pos, ps.size, dado)
 		}
 		if found {
 			total++
