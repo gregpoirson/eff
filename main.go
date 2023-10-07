@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -46,6 +47,9 @@ var flagFindP arrayFindP
 var flagFindD arrayFindD
 var flagDelimiter string
 var flagOutputFile string
+var flagParallel bool
+
+const max_parallel int = 3
 
 type fnExtract func(path string) ([]string, error)
 
@@ -57,6 +61,8 @@ func init() {
 
 	flag.Var(&flagFindD, "findd", "extract from delimited text file. cardinality (0*) - format = l:n:h = get data at line beginning by #l (l is opcional), n-th element #n, data name #h. n=>1")
 	flag.StringVar(&flagDelimiter, "d", "", `cardinality (0-1) - delimiter when extracting from delimited files`)
+
+	flag.BoolVar(&flagParallel, "p", false, "activate parallel extractions (files quantity must be greater than 3)")
 
 }
 
@@ -193,28 +199,53 @@ func getExtractFunction() fnExtract {
 	return nil
 }
 
+var allLines []string
+
+var mu sync.Mutex
+
 func FindInFiles(path string, fnExtract fnExtract) {
 
 	allFiles := getAllFilesInDir(path)
 
+	allLines = make([]string, 0)
+
 	fmt.Printf("searching %d file(s)\n", len(allFiles))
 
-	allLines := make([]string, 0)
+	//let's paralelize, qty >= 3 files, max_parallel go routines max
 
-	for idx, arq := range allFiles {
+	if flagParallel && len(allFiles) >= 3 {
 
-		//fmt.Printf("file #%d\t%s\n", idx+1, arq)
-		allLines = append(allLines, fmt.Sprintf("file #%d\t%s", idx+1, arq))
+		var wg sync.WaitGroup
+		wg.Add(max_parallel)
 
-		lines, err := fnExtract(arq)
+		inc := len(allFiles) / max_parallel
+		if len(allFiles)%max_parallel != 0 {
+			inc++
+		}
+		fmt.Println("chucks of files", inc)
+		//process := 0
+		for i, j := 0, 1; i < len(allFiles); i, j = i+inc, j+1 {
 
-		if err != nil {
-			panic(err)
+			ul := i + inc
+			if ul > len(allFiles) {
+				ul = len(allFiles)
+			}
+			pFiles := allFiles[i:ul]
+
+			//process += len(pFiles)
+			//fmt.Println("processando ", pFiles)
+			go processChunkFiles(j, pFiles, fnExtract, &wg)
 		}
 
-		allLines = append(allLines, lines...)
+		wg.Wait()
 
-		//fmt.Printf("total lines\t%d\n", len(lines))
+		// if process != len(allFiles) {
+		// 	log.Fatalf("not all files processed! %d<>%d", process, len(allFiles))
+		// } else {
+		// 	fmt.Println("all files processed")
+		// }
+	} else {
+		processChunkFiles(0, allFiles, fnExtract, nil)
 	}
 
 	//write the lines in the output file if informed, or in the terminal
@@ -227,6 +258,32 @@ func FindInFiles(path string, fnExtract fnExtract) {
 	}
 }
 
+func processChunkFiles(idRoutine int, pFiles []string, fnExtract fnExtract, wg *sync.WaitGroup) {
+
+	if wg != nil {
+		defer wg.Done()
+	}
+
+	pLines := make([]string, 0)
+
+	for idx, arq := range pFiles {
+
+		pLines = append(pLines, fmt.Sprintf("rout %d, file #%d\t%s", idRoutine, idx+1, arq))
+
+		lines, err := fnExtract(arq)
+
+		if err != nil {
+			panic(err)
+		}
+
+		pLines = append(pLines, lines...)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	allLines = append(allLines, pLines...)
+}
+
 func getAllFilesInDir(path string) []string {
 	allFiles, _ := filepath.Glob(path)
 
@@ -234,11 +291,11 @@ func getAllFilesInDir(path string) []string {
 }
 
 func ExtactDataPosition(path string) ([]string, error) {
-	allLines := make([]string, 0)
+	lines := make([]string, 0)
 
 	f, err := os.Open(path)
 	if err != nil {
-		return allLines, err
+		return lines, err
 	}
 	defer f.Close()
 
@@ -256,7 +313,7 @@ func ExtactDataPosition(path string) ([]string, error) {
 	for _, lps := range flagFindP {
 		hdr = fmt.Sprintf("%s\t%s:%s", hdr, lps.lineBegin, lps.name)
 	}
-	allLines = append(allLines, hdr)
+	lines = append(lines, hdr)
 
 	for scanner.Scan() {
 		numLinha++
@@ -284,7 +341,7 @@ func ExtactDataPosition(path string) ([]string, error) {
 		if found {
 			total++
 			var out = fmt.Sprintf("%d\t%s", numLinha, strings.Join(dados, "\t"))
-			allLines = append(allLines, out)
+			lines = append(lines, out)
 		}
 	}
 
@@ -292,7 +349,7 @@ func ExtactDataPosition(path string) ([]string, error) {
 		return []string{}, err
 	}
 
-	return allLines, nil
+	return lines, nil
 }
 
 // go reads in bytes, not in char. must 'convert' the string
@@ -316,11 +373,11 @@ func substr(s string, lps FindPosition) string {
 // }
 
 func ExtactDataDelimiter(path string) ([]string, error) {
-	allLines := make([]string, 0)
+	lines := make([]string, 0)
 
 	f, err := os.Open(path)
 	if err != nil {
-		return allLines, err
+		return lines, err
 	}
 	defer f.Close()
 
@@ -338,7 +395,7 @@ func ExtactDataDelimiter(path string) ([]string, error) {
 	for _, lps := range flagFindD {
 		hdr = fmt.Sprintf("%s\t%s:%s", hdr, lps.lineBegin, lps.name)
 	}
-	allLines = append(allLines, hdr)
+	lines = append(lines, hdr)
 
 	for scanner.Scan() {
 		numLinha++
@@ -374,15 +431,15 @@ func ExtactDataDelimiter(path string) ([]string, error) {
 		if found {
 			total++
 			var out = fmt.Sprintf("%d\t%s", numLinha, strings.Join(dados, "\t"))
-			allLines = append(allLines, out)
+			lines = append(lines, out)
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
-		return allLines, err
+		return lines, err
 	}
 
-	return allLines, nil
+	return lines, nil
 }
 
 func writeOutputFile(lines []string, outputFile string) {
