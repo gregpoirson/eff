@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -24,6 +23,10 @@ import (
  -f "c:\temp\filepos\arq pos*.txt" -findp D:2:20:NAME -findp D:22:2:AGE -findp D:64:15:TELEPHONE -findp D:89:6:"ITEM NUMBER"
  -f "c:\temp\filepos\arq pos*.txt" -findp D:2:20:NAME -findp D:24:20:COUNTRY -findp D:64:15:TELEPHONE -findp D:89:6:"ITEM NUMBER" -o "c:\temp\arq pos.txt"
  -f "C:\temp\filedelim\arq delim*.txt" -d ";" -findd H:2:NAME -findd H:4:"FILE SEQ" -findd D:2:NAME -findd D:4:COUNTRY -findd D:5:REGION -findd D:6:TELEPHONE -findd D:7:"ITEM NUMBER" -o "c:\temp\arq delim.txt"
+
+ //with parallelism
+ -f "c:\temp\filepos\arq pos*.txt" -findp D:2:20:NAME -findp D:24:20:COUNTRY -findp D:64:15:TELEPHONE -findp D:89:6:"ITEM NUMBER" -o "c:\temp\arq pos.txt" -p
+ -f "C:\temp\filedelim\arq delim*.txt" -d ";" -findd H:2:NAME -findd H:4:"FILE SEQ" -findd D:2:NAME -findd D:4:COUNTRY -findd D:5:REGION -findd D:6:TELEPHONE -findd D:7:"ITEM NUMBER" -o "c:\temp\arq delim.txt" -p
 */
 
 type FindPosition struct {
@@ -49,7 +52,7 @@ var flagDelimiter string
 var flagOutputFile string
 var flagParallel bool
 
-const max_parallel int = 3
+var max_parallel int = 3
 
 type fnExtract func(path string) ([]string, error)
 
@@ -201,13 +204,13 @@ func getExtractFunction() fnExtract {
 
 var allLines []string
 
-var mu sync.Mutex
-
 func FindInFiles(path string, fnExtract fnExtract) {
 
 	allFiles := getAllFilesInDir(path)
 
 	allLines = make([]string, 0)
+
+	cLines := make(chan []string)
 
 	fmt.Printf("searching %d file(s)\n", len(allFiles))
 
@@ -215,8 +218,19 @@ func FindInFiles(path string, fnExtract fnExtract) {
 
 	if flagParallel && len(allFiles) >= 3 {
 
-		var wg sync.WaitGroup
-		wg.Add(max_parallel)
+		//let's determine o max parallel bases on the number of files to process, max between 3 and 8
+		//3 to 20 files: max=3
+		//21 to 50 files: max=5
+		//more than 51: max=10
+		switch {
+		case len(allFiles) <= 20:
+			max_parallel = 3
+		case len(allFiles) <= 50:
+			max_parallel = 5
+		default:
+			max_parallel = 8
+		}
+		fmt.Printf("using %d go routines\n", max_parallel)
 
 		inc := len(allFiles) / max_parallel
 		if len(allFiles)%max_parallel != 0 {
@@ -234,10 +248,8 @@ func FindInFiles(path string, fnExtract fnExtract) {
 
 			//process += len(pFiles)
 			//fmt.Println("processando ", pFiles)
-			go processChunkFiles(j, pFiles, fnExtract, &wg)
+			go processChunkFiles(j, pFiles, fnExtract, cLines)
 		}
-
-		wg.Wait()
 
 		// if process != len(allFiles) {
 		// 	log.Fatalf("not all files processed! %d<>%d", process, len(allFiles))
@@ -245,8 +257,15 @@ func FindInFiles(path string, fnExtract fnExtract) {
 		// 	fmt.Println("all files processed")
 		// }
 	} else {
-		processChunkFiles(0, allFiles, fnExtract, nil)
+		go processChunkFiles(0, allFiles, fnExtract, cLines)
 	}
+
+	for i := 0; flagParallel && (i < max_parallel) || i < 1; i++ {
+		var cl = <-cLines
+		allLines = append(allLines, cl...)
+	}
+
+	close(cLines)
 
 	//write the lines in the output file if informed, or in the terminal
 	if flagOutputFile != "" {
@@ -258,12 +277,8 @@ func FindInFiles(path string, fnExtract fnExtract) {
 	}
 }
 
-func processChunkFiles(idRoutine int, pFiles []string, fnExtract fnExtract, wg *sync.WaitGroup) {
-
-	if wg != nil {
-		defer wg.Done()
-	}
-
+func processChunkFiles(idRoutine int, pFiles []string, fnExtract fnExtract, ch chan []string) {
+	//fmt.Println("go routine #", idRoutine)
 	pLines := make([]string, 0)
 
 	for idx, arq := range pFiles {
@@ -279,9 +294,8 @@ func processChunkFiles(idRoutine int, pFiles []string, fnExtract fnExtract, wg *
 		pLines = append(pLines, lines...)
 	}
 
-	mu.Lock()
-	defer mu.Unlock()
-	allLines = append(allLines, pLines...)
+	//fmt.Println("write line to channel: ", len(pLines))
+	ch <- pLines
 }
 
 func getAllFilesInDir(path string) []string {
