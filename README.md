@@ -1,10 +1,10 @@
 # eff
 command line tool to extract info from text files
 
-arg -f : cardinality (1) - file ou dir to search, may contem special char *. ex: C:\temp\file.txt, C:\temp\*.txt`
+arg -f : cardinality (1) - file ou dir to search, may contem special char * . ex: C:\temp\file.txt, C:\temp\*.txt
 arg -o : cardinality (0-1) - output file"
-arg -findp : cardinality (0*) - extract from positional text file. format = l:p:s:h = get data at line beginning by #l (l is opcional), position #p, size #s, data name #h. p=>1, s=>1"
-arg -findd : cardinality (0*) - extract from delimited text file. format = l:n:h = get data at line beginning by #l (l is opcional), n-th element #n, data name #h. n=>1"
+arg -findp : cardinality (0*) - extract from positional text file. format = l:p:s:h = get data at line beginning by #l (l is opcional), position #p, size #s, data name #h. p=>1, s=>1
+arg -findd : cardinality (0*) - extract from delimited text file. format = l:n:h = get data at line beginning by #l (l is opcional), n-th element #n, data name #h. n=>1
 arg -d : cardinality (0-1) - delimiter when extracting from delimited files (use with arg -findd)
 arg -p : cardinality (0-1) - activate parallel extractions (files quantity must be greater than 3)
 
